@@ -40,7 +40,7 @@
         const ROOM_TOPIC = 'cyber-roulette-demo-v3';
 
         // 使用极其稳定的 Eclipse 443 端口节点，绕过防火墙
-        const client = mqtt.connect('wss://broker.hivemq.com:8443/mqtt');
+        const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
         let isLooking = false;
         let radarInterval = null;
