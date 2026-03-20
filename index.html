@@ -3,23 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>P2P 纯前端视频匹配 (终极穿透版)</title>
-    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <title>P2P 视频直连 (PeerJS稳定版)</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { background-color: #1a1a1a; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
         .video-container { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 20px; }
         video { width: 100%; max-width: 400px; height: 250px; background-color: #000; border-radius: 12px; border: 2px solid #333; object-fit: cover; transform: scaleX(-1); }
-        button { background-color: #00ff88; color: #000; border: none; padding: 15px 30px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; margin-top: 20px; }
-        button:disabled { background-color: #555; color: #888; cursor: not-allowed; }
+        .control-panel { background: #333; padding: 15px; border-radius: 10px; margin-top: 15px; }
+        input { padding: 10px; font-size: 16px; width: 60%; border-radius: 5px; border: none; text-align: center; margin-bottom: 10px; }
+        button { background-color: #00ff88; color: #000; border: none; padding: 10px 20px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; }
+        #myIdDisplay { color: #00ff88; font-weight: bold; font-size: 20px; letter-spacing: 2px; }
         #status { margin-top: 15px; color: #ffeb3b; font-size: 14px; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h2>赛博轮盘 P2P (终极穿透版)</h2>
-    <div id="status">正在连接公共信令网络...</div>
+    <h2>PeerJS 稳定直连测试</h2>
 
-    <button id="matchBtn" disabled>连接摄像头并寻找</button>
+    <div class="control-panel">
+        <p>你的专属暗号：<br><span id="myIdDisplay">正在获取...</span></p>
+        <div id="status">正在连接官方信令服务器...</div>
+
+        <hr style="border-color: #555; margin: 15px 0;">
+
+        <input type="text" id="targetIdInput" placeholder="输入对方的暗号">
+        <br>
+        <button id="callBtn" disabled>发起视频呼叫</button>
+    </div>
 
     <div class="video-container">
         <video id="localVideo" autoplay muted playsinline></video>
@@ -29,149 +39,79 @@
     <script>
         const localVideo = document.getElementById('localVideo');
         const remoteVideo = document.getElementById('remoteVideo');
-        const matchBtn = document.getElementById('matchBtn');
+        const myIdDisplay = document.getElementById('myIdDisplay');
         const statusDiv = document.getElementById('status');
+        const targetIdInput = document.getElementById('targetIdInput');
+        const callBtn = document.getElementById('callBtn');
 
         let localStream;
-        let peerConnection = null;
-        let iceCandidateQueue = []; // 用来暂存提前到达的打洞信息
 
-        const myId = Math.random().toString(36).substring(2, 10);
-        const ROOM_TOPIC = 'cyber-roulette-demo-v3';
-
-        // 使用极其稳定的 Eclipse 443 端口节点，绕过防火墙
-        const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
-
-        let isLooking = false;
-        let radarInterval = null;
-
-        client.on('connect', () => {
-            statusDiv.innerText = "网络已连接，随时可以开始！";
-            matchBtn.disabled = false;
-            client.subscribe(ROOM_TOPIC);
+        // 1. 初始化 Peer，自动连接到 PeerJS 的免费公共云服务器
+        // 随机生成一个 4 位数的简单暗号，方便手机输入
+        const randomId = Math.floor(1000 + Math.random() * 9000).toString();
+        const peer = new Peer(randomId, {
+            debug: 2,
+            config: {
+                'iceServers': [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            }
         });
 
-        // 谷歌免费公共 STUN 打洞服务器
-        const rtcConfig = {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' }
-            ]
-        };
+        // 2. 成功连上公共服务器，拿到自己的暗号
+        peer.on('open', async (id) => {
+            myIdDisplay.innerText = id;
+            statusDiv.innerText = "✅ 已连上服务器！请允许摄像头权限。";
+            statusDiv.style.color = "#00ff88";
 
-        matchBtn.onclick = async () => {
             try {
+                // 获取摄像头
                 localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 localVideo.srcObject = localStream;
-                isLooking = true;
-                matchBtn.disabled = true;
-                statusDiv.innerText = "雷达开启：每2秒发送一次寻找信号...";
-
-                radarInterval = setInterval(() => {
-                    if (isLooking) broadcast({ type: 'looking', id: myId });
-                }, 2000);
+                callBtn.disabled = false;
+                statusDiv.innerText = "摄像头已就绪，等待呼叫或被呼叫...";
             } catch (err) {
-                alert("摄像头获取失败！" + err.message);
-            }
-        };
-
-        client.on('message', async (topic, message) => {
-            const msg = JSON.parse(message.toString());
-            if (msg.sender === myId || msg.id === myId) return;
-
-            if (msg.type === 'looking' && isLooking) {
-                if (myId > msg.id && !peerConnection) {
-                    stopRadar();
-                    statusDiv.innerText = "锁定目标，正在拨号中...";
-                    initiateCall(msg.id);
-                }
-            }
-
-            if (msg.type === 'offer' && msg.target === myId) {
-                if (!isLooking) return;
-                stopRadar();
-                statusDiv.innerText = "收到视频邀请，正在接听...";
-
-                createPeerConnection(msg.sender);
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-
-                // 处理暂存的打洞信息
-                processIceQueue();
-
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
-                broadcast({ type: 'answer', target: msg.sender, sender: myId, sdp: peerConnection.localDescription });
-            }
-
-            if (msg.type === 'answer' && msg.target === myId) {
-                if (peerConnection) {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-                    statusDiv.innerText = "P2P 握手成功，底层网络打洞中...";
-                    processIceQueue();
-                }
-            }
-
-            if (msg.type === 'ice' && msg.target === myId) {
-                if (peerConnection && peerConnection.remoteDescription) {
-                    await peerConnection.addIceCandidate(new RTCIceCandidate(msg.candidate));
-                } else {
-                    // 如果名片还没交换完，先把打洞信息存起来
-                    iceCandidateQueue.push(msg.candidate);
-                }
+                alert("无法访问摄像头: " + err.message);
             }
         });
 
-        function stopRadar() {
-            isLooking = false;
-            if (radarInterval) clearInterval(radarInterval);
-        }
+        // 3. 处理别人打来的视频电话（被动接听）
+        peer.on('call', (call) => {
+            statusDiv.innerText = "收到视频请求，自动接听中...";
+            // 把自己的视频流发给对方
+            call.answer(localStream);
 
-        async function processIceQueue() {
-            for (const candidate of iceCandidateQueue) {
-                await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            // 收到对方的视频流并播放
+            call.on('stream', (remoteStream) => {
+                remoteVideo.srcObject = remoteStream;
+                statusDiv.innerText = "🟢 P2P 视频直连成功！";
+            });
+        });
+
+        // 4. 主动给别人打视频电话
+        callBtn.onclick = () => {
+            const targetId = targetIdInput.value.trim();
+            if (!targetId) {
+                alert("请输入对方的暗号！");
+                return;
             }
-            iceCandidateQueue = [];
-        }
 
-        async function initiateCall(targetId) {
-            createPeerConnection(targetId);
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            broadcast({ type: 'offer', target: targetId, sender: myId, sdp: peerConnection.localDescription });
-        }
+            statusDiv.innerText = "正在呼叫对方...";
+            // 发起呼叫，带上自己的视频流
+            const call = peer.call(targetId, localStream);
 
-        function createPeerConnection(targetId) {
-            peerConnection = new RTCPeerConnection(rtcConfig);
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+            // 收到对方的视频流并播放
+            call.on('stream', (remoteStream) => {
+                remoteVideo.srcObject = remoteStream;
+                statusDiv.innerText = "🟢 P2P 视频直连成功！";
+            });
 
-            // 监控底层网络状态
-            peerConnection.oniceconnectionstatechange = () => {
-                console.log("当前 P2P 状态:", peerConnection.iceConnectionState);
-                if (peerConnection.iceConnectionState === 'connected') {
-                    statusDiv.innerText = "🟢 网络穿透成功！完全去中心化直连！";
-                    statusDiv.style.color = "#00ff88";
-                } else if (peerConnection.iceConnectionState === 'failed') {
-                    statusDiv.innerText = "❌ 防火墙太厚，P2P 打洞失败！(尝试连同一个WiFi)";
-                    statusDiv.style.color = "#ff4444";
-                }
-            };
-
-            peerConnection.ontrack = (event) => {
-                remoteVideo.srcObject = event.streams[0];
-                // 强制唤醒手机浏览器的视频播放
-                remoteVideo.play().catch(e => console.error("视频自动播放被拦截:", e));
-            };
-
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    broadcast({ type: 'ice', target: targetId, sender: myId, candidate: event.candidate });
-                }
-            };
-        }
-
-        function broadcast(data) {
-            client.publish(ROOM_TOPIC, JSON.stringify(data));
-        }
+            call.on('error', (err) => {
+                statusDiv.innerText = "❌ 呼叫失败: " + err.type;
+                statusDiv.style.color = "#ff4444";
+            });
+        };
     </script>
 </body>
 </html>
