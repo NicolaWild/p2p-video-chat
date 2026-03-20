@@ -39,7 +39,7 @@
         // 💡 为了防止和网上其他测试的人撞车，你可以把这里的数字改掉
         const ROOM_TOPIC = 'cyber-roulette-demo-v2';
 
-        const client = mqtt.connect('wss://test.mosquitto.org:8081/mqtt');
+        const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 
         let isLooking = false; // 新增：状态锁
         let radarInterval = null; // 新增：雷达定时器
