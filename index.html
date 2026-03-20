@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>P2P 纯前端视频匹配 (修复版)</title>
+    <title>P2P 纯前端视频匹配 (终极穿透版)</title>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <style>
         body { background-color: #1a1a1a; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
         .video-container { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 20px; }
-        video { width: 100%; max-width: 400px; height: 250px; background-color: #000; border-radius: 12px; border: 2px solid #333; object-fit: cover; transform: scaleX(-1); /* 镜像翻转，看着更自然 */ }
+        video { width: 100%; max-width: 400px; height: 250px; background-color: #000; border-radius: 12px; border: 2px solid #333; object-fit: cover; transform: scaleX(-1); }
         button { background-color: #00ff88; color: #000; border: none; padding: 15px 30px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; margin-top: 20px; }
         button:disabled { background-color: #555; color: #888; cursor: not-allowed; }
         #status { margin-top: 15px; color: #ffeb3b; font-size: 14px; font-weight: bold; }
@@ -16,7 +16,7 @@
 </head>
 <body>
 
-    <h2>赛博轮盘 P2P (雷达版)</h2>
+    <h2>赛博轮盘 P2P (终极穿透版)</h2>
     <div id="status">正在连接公共信令网络...</div>
 
     <button id="matchBtn" disabled>连接摄像头并寻找</button>
@@ -34,15 +34,16 @@
 
         let localStream;
         let peerConnection = null;
+        let iceCandidateQueue = []; // 用来暂存提前到达的打洞信息
 
         const myId = Math.random().toString(36).substring(2, 10);
-        // 💡 为了防止和网上其他测试的人撞车，你可以把这里的数字改掉
-        const ROOM_TOPIC = 'cyber-roulette-demo-v2';
+        const ROOM_TOPIC = 'cyber-roulette-demo-v3';
 
-        const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
+        // 使用极其稳定的 Eclipse 443 端口节点，绕过防火墙
+        const client = mqtt.connect('wss://mqtt.eclipseprojects.io/mqtt');
 
-        let isLooking = false; // 新增：状态锁
-        let radarInterval = null; // 新增：雷达定时器
+        let isLooking = false;
+        let radarInterval = null;
 
         client.on('connect', () => {
             statusDiv.innerText = "网络已连接，随时可以开始！";
@@ -50,6 +51,7 @@
             client.subscribe(ROOM_TOPIC);
         });
 
+        // 谷歌免费公共 STUN 打洞服务器
         const rtcConfig = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
@@ -65,11 +67,9 @@
                 matchBtn.disabled = true;
                 statusDiv.innerText = "雷达开启：每2秒发送一次寻找信号...";
 
-                // 核心修复：开启循环广播，死缠烂打！
                 radarInterval = setInterval(() => {
                     if (isLooking) broadcast({ type: 'looking', id: myId });
                 }, 2000);
-
             } catch (err) {
                 alert("摄像头获取失败！" + err.message);
             }
@@ -79,24 +79,25 @@
             const msg = JSON.parse(message.toString());
             if (msg.sender === myId || msg.id === myId) return;
 
-            // 只有在我自己也在寻找时，才处理别人的 looking 信号
             if (msg.type === 'looking' && isLooking) {
-                // 解决冲突：ID 大的负责发起通话，ID 小的继续等
                 if (myId > msg.id && !peerConnection) {
-                    stopRadar(); // 找到人了，关掉雷达
+                    stopRadar();
                     statusDiv.innerText = "锁定目标，正在拨号中...";
                     initiateCall(msg.id);
                 }
             }
 
-            // 收到邀请
             if (msg.type === 'offer' && msg.target === myId) {
-                if (!isLooking) return; // 如果我没在找人，直接无视
+                if (!isLooking) return;
                 stopRadar();
                 statusDiv.innerText = "收到视频邀请，正在接听...";
 
                 createPeerConnection(msg.sender);
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+
+                // 处理暂存的打洞信息
+                processIceQueue();
+
                 const answer = await peerConnection.createAnswer();
                 await peerConnection.setLocalDescription(answer);
                 broadcast({ type: 'answer', target: msg.sender, sender: myId, sdp: peerConnection.localDescription });
@@ -105,13 +106,17 @@
             if (msg.type === 'answer' && msg.target === myId) {
                 if (peerConnection) {
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-                    statusDiv.innerText = "P2P 握手成功，等待画面...";
+                    statusDiv.innerText = "P2P 握手成功，底层网络打洞中...";
+                    processIceQueue();
                 }
             }
 
             if (msg.type === 'ice' && msg.target === myId) {
                 if (peerConnection && peerConnection.remoteDescription) {
                     await peerConnection.addIceCandidate(new RTCIceCandidate(msg.candidate));
+                } else {
+                    // 如果名片还没交换完，先把打洞信息存起来
+                    iceCandidateQueue.push(msg.candidate);
                 }
             }
         });
@@ -119,6 +124,13 @@
         function stopRadar() {
             isLooking = false;
             if (radarInterval) clearInterval(radarInterval);
+        }
+
+        async function processIceQueue() {
+            for (const candidate of iceCandidateQueue) {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+            iceCandidateQueue = [];
         }
 
         async function initiateCall(targetId) {
@@ -132,10 +144,22 @@
             peerConnection = new RTCPeerConnection(rtcConfig);
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
+            // 监控底层网络状态
+            peerConnection.oniceconnectionstatechange = () => {
+                console.log("当前 P2P 状态:", peerConnection.iceConnectionState);
+                if (peerConnection.iceConnectionState === 'connected') {
+                    statusDiv.innerText = "🟢 网络穿透成功！完全去中心化直连！";
+                    statusDiv.style.color = "#00ff88";
+                } else if (peerConnection.iceConnectionState === 'failed') {
+                    statusDiv.innerText = "❌ 防火墙太厚，P2P 打洞失败！(尝试连同一个WiFi)";
+                    statusDiv.style.color = "#ff4444";
+                }
+            };
+
             peerConnection.ontrack = (event) => {
                 remoteVideo.srcObject = event.streams[0];
-                statusDiv.innerText = "🟢 连接建立！完全去中心化直连！";
-                statusDiv.style.color = "#00ff88";
+                // 强制唤醒手机浏览器的视频播放
+                remoteVideo.play().catch(e => console.error("视频自动播放被拦截:", e));
             };
 
             peerConnection.onicecandidate = (event) => {
