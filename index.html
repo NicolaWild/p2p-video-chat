@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>P2P 纯前端视频匹配</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        body { background-color: #1a1a1a; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
+        .video-container { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 20px; }
+        /* 注意：playsinline 属性对手机端非常重要 */
+        video { width: 100%; max-width: 400px; height: 250px; background-color: #000; border-radius: 12px; border: 2px solid #333; object-fit: cover; }
+        button { background-color: #00ff88; color: #000; border: none; padding: 15px 30px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; margin-top: 20px; box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3); }
+        button:active { transform: scale(0.95); }
+        #status { margin-top: 15px; color: #aaa; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+    <h2>赛博轮盘 P2P 测试</h2>
+    <div id="status">正在连接公共信令网络...</div>
+
+    <button id="matchBtn" disabled>连接摄像头并寻找陌生人</button>
+
+    <div class="video-container">
+        <video id="localVideo" autoplay muted playsinline></video>
+        <video id="remoteVideo" autoplay playsinline></video>
+    </div>
+
+    <script>
+        // 1. 初始化变量
+        const localVideo = document.getElementById('localVideo');
+        const remoteVideo = document.getElementById('remoteVideo');
+        const matchBtn = document.getElementById('matchBtn');
+        const statusDiv = document.getElementById('status');
+
+        let localStream;
+        let peerConnection;
+
+        // 随机生成一个身份 ID
+        const myId = Math.random().toString(36).substring(2, 10);
+        // 我们在公共网络里的频道密码，确保你的两台手机能匹配到一起
+        const ROOM_TOPIC = 'cyber-roulette-demo-998877';
+
+        // 2. 连接到公共 MQTT 节点（作为我们的信令交换机）
+        const client = mqtt.connect('wss://test.mosquitto.org:8081/mqtt');
+
+        client.on('connect', () => {
+            statusDiv.innerText = "已连接去中心化网络！可以开始匹配。";
+            matchBtn.disabled = false;
+            client.subscribe(ROOM_TOPIC);
+        });
+
+        // 3. WebRTC 核心配置：使用 Google 免费提供的打洞服务器
+        const rtcConfig = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        };
+
+        // 4. 点击按钮：打开摄像头并广播寻找消息
+        matchBtn.onclick = async () => {
+            try {
+                // 获取手机摄像头和麦克风权限
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localVideo.srcObject = localStream;
+                statusDiv.innerText = "正在广播寻找信号，等待有缘人...";
+                matchBtn.disabled = true;
+
+                // 向公共频道广播：“我正在寻找连接！”
+                broadcast({ type: 'looking', id: myId });
+            } catch (err) {
+                alert("无法访问摄像头，请确保使用 HTTPS 协议并授予权限！\n报错信息: " + err.message);
+            }
+        };
+
+        // 5. 核心逻辑：处理从公告板收到的消息
+        client.on('message', async (topic, message) => {
+            const msg = JSON.parse(message.toString());
+
+            // 忽略自己发出的消息
+            if (msg.sender === myId || msg.id === myId) return;
+
+            // A. 听到有人在寻找匹配
+            if (msg.type === 'looking') {
+                statusDiv.innerText = "发现目标，正在建立 P2P 直连...";
+                // 巧妙的机制：避免两个人同时发起连接导致冲突，ID 较大的一方主动发起呼叫
+                if (myId > msg.id) {
+                    initiateCall(msg.id);
+                }
+            }
+
+            // B. 收到别人的视频连接邀请（Offer）
+            if (msg.type === 'offer' && msg.target === myId) {
+                createPeerConnection(msg.sender);
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                broadcast({ type: 'answer', target: msg.sender, sender: myId, sdp: peerConnection.localDescription });
+            }
+
+            // C. 对方接受了我的邀请（Answer）
+            if (msg.type === 'answer' && msg.target === myId) {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+                statusDiv.innerText = "P2P 隧道建立成功！视频通讯中...";
+            }
+
+            // D. 交换网络打洞信息（ICE）
+            if (msg.type === 'ice' && msg.target === myId) {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(msg.candidate));
+            }
+        });
+
+        // 6. 辅助函数：发起呼叫
+        async function initiateCall(targetId) {
+            createPeerConnection(targetId);
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            broadcast({ type: 'offer', target: targetId, sender: myId, sdp: peerConnection.localDescription });
+        }
+
+        // 7. 辅助函数：创建 P2P 连接对象
+        function createPeerConnection(targetId) {
+            peerConnection = new RTCPeerConnection(rtcConfig);
+
+            // 把自己的摄像头画面塞进连接里
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            // 收到对方画面时，显示到 remoteVideo 上
+            peerConnection.ontrack = (event) => {
+                remoteVideo.srcObject = event.streams[0];
+            };
+
+            // 收集自己的公网 IP 碎片（打洞），发给对方
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    broadcast({ type: 'ice', target: targetId, sender: myId, candidate: event.candidate });
+                }
+            };
+        }
+
+        // 8. 辅助函数：向网络广播消息
+        function broadcast(data) {
+            client.publish(ROOM_TOPIC, JSON.stringify(data));
+        }
+    </script>
+</body>
+</html>
