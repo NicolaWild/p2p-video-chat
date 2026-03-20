@@ -34,7 +34,27 @@
         button:active { transform: scale(0.95); }
         button:disabled { background-color: #444; color: #888; cursor: not-allowed; }
 
-        .btn-hangup { background-color: #ff4444; color: white; border-radius: 30px; padding: 15px 40px; display: none; margin-bottom: 20px; pointer-events: auto; }
+        /* 🔥 挂断按钮：绝对定位到屏幕底部居中 🔥 */
+        .btn-hangup {
+            background-color: #ff4444;
+            color: white;
+            border-radius: 30px;
+            padding: 16px 50px;
+            font-size: 16px;
+            display: none;
+            pointer-events: auto;
+
+            /* 把它“钉”在底部 */
+            position: absolute;
+            /* 距离底部 40px，并加上刘海屏底部安全高度 */
+            bottom: calc(env(safe-area-inset-bottom, 20px) + 40px);
+            left: 50%;
+            transform: translateX(-50%); /* 保证完美居中 */
+            box-shadow: 0 8px 25px rgba(255, 68, 68, 0.4);
+            z-index: 30;
+        }
+        /* 修复居中状态下的点击缩放动画 */
+        .btn-hangup:active { transform: translateX(-50%) scale(0.95); }
     </style>
 </head>
 <body>
@@ -166,6 +186,10 @@
 
             call.on('close', () => {
                 statusDiv.innerText = "通话已结束";
+                resetUI();
+            });
+
+            call.on('error', () => {
                 resetUI();
             });
         }
