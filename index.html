@@ -3,45 +3,54 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>去中心化视频轮盘 (终极形态)</title>
+    <title>赛博轮盘 - 沉浸全屏版</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <style>
-        body { background-color: #111; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 10px; }
-        .video-container { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 10px; }
-        video { width: 100%; max-width: 450px; height: 300px; background-color: #222; border-radius: 12px; border: 2px solid #444; object-fit: cover; transform: scaleX(-1); cursor: pointer; }
-        .control-panel { background: #222; padding: 15px; border-radius: 10px; margin-top: 15px; border: 1px solid #333; }
-        button { background-color: #00ff88; color: #000; border: none; padding: 15px 30px; font-size: 18px; font-weight: bold; border-radius: 30px; cursor: pointer; width: 80%; max-width: 300px; transition: all 0.2s; }
+        /* 消除所有默认边距，防止页面滚动 */
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000; overflow: hidden; font-family: sans-serif; }
+
+        /* 全屏视频样式 */
+        .fullscreen-video { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); z-index: 1; transition: all 0.3s ease-in-out; }
+
+        /* 悬浮小窗样式 (画中画) */
+        .pip-video { position: absolute; width: 120px; height: 180px; top: 20px; right: 20px; border-radius: 12px; border: 2px solid #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.5); object-fit: cover; transform: scaleX(-1); z-index: 10; cursor: grab; /* 拖拽时取消过渡动画，否则会卡顿 */ transition: none; }
+        .pip-video:active { cursor: grabbing; }
+
+        /* UI 悬浮层 */
+        .ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; /* 让鼠标事件穿透到下层 */ display: flex; flex-direction: column; justify-content: space-between; align-items: center; padding: 40px 0; box-sizing: border-box; }
+
+        /* 顶部状态提示 */
+        #status { background: rgba(0, 0, 0, 0.5); color: #fff; padding: 8px 20px; border-radius: 20px; font-size: 14px; backdrop-filter: blur(5px); }
+
+        /* 底部操作区 */
+        .bottom-controls { pointer-events: auto; /* 恢复底部按钮的点击事件 */ width: 100%; display: flex; justify-content: center; }
+
+        button { background-color: #00ff88; color: #000; border: none; padding: 18px 40px; font-size: 18px; font-weight: bold; border-radius: 30px; cursor: pointer; box-shadow: 0 4px 20px rgba(0, 255, 136, 0.4); transition: transform 0.1s, background-color 0.2s; }
         button:active { transform: scale(0.95); }
-        button:disabled { background-color: #555; color: #888; cursor: not-allowed; }
-        .btn-next { background-color: #ff4444; color: white; margin-top: 10px; display: none; }
-        #status { margin-top: 10px; color: #ffeb3b; font-size: 15px; font-weight: bold; }
-        .label { margin: 0; color: #aaa; font-size: 12px; margin-top: 5px; }
+        button:disabled { background-color: #555; color: #aaa; box-shadow: none; cursor: not-allowed; }
+
+        /* 挂断/换人按钮特例 */
+        .btn-next { background-color: #ff4444; color: #fff; box-shadow: 0 4px 20px rgba(255, 68, 68, 0.4); }
     </style>
 </head>
 <body>
 
-    <h2>🎲 赛博随机轮盘</h2>
+    <video id="remoteVideo" class="fullscreen-video" autoplay playsinline style="display: none;"></video>
+    <video id="localVideo" class="fullscreen-video" autoplay muted playsinline></video>
 
-    <div class="control-panel">
-        <div id="status">系统初始化中...</div>
-        <button id="startBtn" disabled>开启摄像头并匹配</button>
-        <button id="nextBtn" class="btn-next">⏭️ 换一个人 (Next)</button>
-    </div>
-
-    <div class="video-container">
-        <p class="label">我的画面</p>
-        <video id="localVideo" autoplay muted playsinline></video>
-        <p class="label">对方画面 (黑屏请点击画面)</p>
-        <video id="remoteVideo" autoplay playsinline></video>
+    <div class="ui-layer">
+        <div id="status">正在打开摄像头...</div>
+        <div class="bottom-controls">
+            <button id="actionBtn" disabled>开始匹配</button>
+        </div>
     </div>
 
     <script>
         const localVideo = document.getElementById('localVideo');
         const remoteVideo = document.getElementById('remoteVideo');
         const statusDiv = document.getElementById('status');
-        const startBtn = document.getElementById('startBtn');
-        const nextBtn = document.getElementById('nextBtn');
+        const actionBtn = document.getElementById('actionBtn');
 
         let localStream;
         let peer;
@@ -50,156 +59,190 @@
         let currentCall = null;
         let isLooking = false;
         let radarInterval = null;
+        let networkReady = false;
 
-        const ROOM_TOPIC = 'cyber-roulette-lobby-v1';
+        const ROOM_TOPIC = 'cyber-roulette-lobby-v2';
 
-        // ================= 1. 初始化两套网络 =================
-
-        // 1.1 初始化 PeerJS (视频底层)
-        myPeerId = Math.random().toString(36).substring(2, 10);
-        peer = new Peer(myPeerId, {
-            config: {
-                'iceServers': [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' }
-                ]
+        // ================= 1. 自动开启摄像头 =================
+        async function initCamera() {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localVideo.srcObject = localStream;
+                statusDiv.innerText = "正在连接网络...";
+                initNetwork(); // 摄像头就绪后，初始化网络
+            } catch (err) {
+                statusDiv.innerText = "❌ 摄像头权限被拒绝，请允许后刷新页面";
+                statusDiv.style.backgroundColor = "rgba(255, 0, 0, 0.8)";
             }
-        });
+        }
 
-        peer.on('open', (id) => {
-            // 1.2 初始化 MQTT (寻人雷达)
-            // 使用之前你在手机上成功连通的 EMQX 节点
-            mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
-
-            mqttClient.on('connect', () => {
-                mqttClient.subscribe(ROOM_TOPIC);
-                statusDiv.innerText = "✅ 就绪！点击下方按钮开始寻找陌生人。";
-                statusDiv.style.color = "#00ff88";
-                startBtn.disabled = false;
+        // ================= 2. 网络初始化 =================
+        function initNetwork() {
+            myPeerId = Math.random().toString(36).substring(2, 10);
+            peer = new Peer(myPeerId, {
+                config: { 'iceServers': [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] }
             });
-        });
 
-        // ================= 2. 匹配逻辑 (核心) =================
+            peer.on('open', (id) => {
+                mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
+                mqttClient.on('connect', () => {
+                    mqttClient.subscribe(ROOM_TOPIC);
+                    networkReady = true;
+                    statusDiv.innerText = "✅ 就绪！准备好遇见陌生人了吗？";
+                    actionBtn.innerText = "开始匹配";
+                    actionBtn.disabled = false;
+                });
 
-        // 收到大厅里的广播
-        mqttClient.on('message', (topic, message) => {
-            if (!isLooking) return; // 如果我没在找人，直接无视大厅声音
+                // 处理大厅广播
+                mqttClient.on('message', (topic, message) => {
+                    if (!isLooking) return;
+                    const msg = JSON.parse(message.toString());
+                    if (msg.id === myPeerId) return;
 
-            const msg = JSON.parse(message.toString());
-            if (msg.id === myPeerId) return; // 无视自己的回音
+                    if (msg.type === 'looking' && myPeerId > msg.id) {
+                        connectToStranger(msg.id);
+                    }
+                });
+            });
 
-            if (msg.type === 'looking') {
-                // 发现目标！ID 大的人负责主动拨号，防止互相拨号导致冲突
-                if (myPeerId > msg.id) {
-                    connectToStranger(msg.id);
+            // 处理被动接听
+            peer.on('call', (call) => {
+                if (!isLooking) {
+                    setTimeout(() => call.close(), 500);
+                    return;
                 }
-            }
-        });
+                stopLooking();
+                statusDiv.innerText = "收到连接，正在接通...";
+                call.answer(localStream);
+                handleCall(call);
+            });
+        }
 
-        // 开启雷达寻找
+        // ================= 3. 匹配与通话逻辑 =================
         function startLooking() {
-            if (currentCall) {
-                currentCall.close(); // 挂断当前电话
-                remoteVideo.srcObject = null; // 清空对方画面
-            }
+            if (currentCall) { currentCall.close(); }
+
+            // UI 状态切回等待界面：我的画面全屏，隐藏对方画面
+            switchToWaitingUI();
 
             isLooking = true;
-            statusDiv.innerText = "📡 雷达扫描中，等待有缘人...";
-            statusDiv.style.color = "#ffeb3b";
-            startBtn.style.display = 'none';
-            nextBtn.style.display = 'inline-block';
-            nextBtn.disabled = true; // 还没连上时，不能狂点 next
+            statusDiv.innerText = "📡 正在茫茫人海中寻找...";
+            actionBtn.innerText = "匹配中...";
+            actionBtn.disabled = true; // 匹配中防止狂点
 
-            // 每 2 秒在大厅喊一次我的 PeerID
             radarInterval = setInterval(() => {
-                if (isLooking) {
-                    mqttClient.publish(ROOM_TOPIC, JSON.stringify({ type: 'looking', id: myPeerId }));
-                }
+                if (isLooking) mqttClient.publish(ROOM_TOPIC, JSON.stringify({ type: 'looking', id: myPeerId }));
             }, 2000);
         }
 
-        // 停止雷达
         function stopLooking() {
             isLooking = false;
             if (radarInterval) clearInterval(radarInterval);
         }
 
-        // 主动拨打对方
         function connectToStranger(targetPeerId) {
             stopLooking();
-            statusDiv.innerText = "锁定目标，正在拨号建立直连...";
-
+            statusDiv.innerText = "锁定目标，建立加密直连...";
             const call = peer.call(targetPeerId, localStream);
             handleCall(call);
         }
 
-        // 被动接听对方
-        peer.on('call', (call) => {
-            if (!isLooking) {
-                // 如果我正在聊天，别人打进来，直接挂断
-                setTimeout(() => call.close(), 500);
-                return;
-            }
-
-            stopLooking();
-            statusDiv.innerText = "收到连接请求，自动接听中...";
-            call.answer(localStream);
-            handleCall(call);
-        });
-
-        // 统一处理通话状态
         function handleCall(call) {
             currentCall = call;
 
             call.on('stream', (remoteStream) => {
-                // 防止重复触发
                 if (remoteVideo.srcObject !== remoteStream) {
                     remoteVideo.srcObject = remoteStream;
                 }
 
                 remoteVideo.play().then(() => {
-                    statusDiv.innerText = "🟢 匹配成功！开始聊天吧！";
-                    statusDiv.style.color = "#00ff88";
-                    nextBtn.disabled = false; // 连上后，允许点击 Next
+                    // 核心UI切换：连接成功，对方全屏，我变小窗
+                    switchToConnectedUI();
                 }).catch((err) => {
-                    statusDiv.innerText = "⚠️ 浏览器拦截声音，请点击下方画面！";
-                    statusDiv.style.color = "#ff4444";
-                    remoteVideo.onclick = () => { remoteVideo.play(); statusDiv.innerText = "🟢 匹配成功！"; statusDiv.style.color = "#00ff88"; };
-                    nextBtn.disabled = false;
+                    statusDiv.innerText = "⚠️ 请轻触屏幕任意位置播放画面";
+                    document.body.onclick = () => { remoteVideo.play(); switchToConnectedUI(); document.body.onclick = null; };
                 });
             });
 
-            // 如果对方掉线或挂断
             call.on('close', () => {
-                if (!isLooking) {
-                    statusDiv.innerText = "❌ 对方已离开，自动重新寻找...";
-                    startLooking();
-                }
+                if (!isLooking) startLooking(); // 对方挂断，自动继续找
             });
-
-            call.on('error', (err) => {
-                console.error("连接出错:", err);
-                startLooking(); // 出错就重新找人
-            });
+            call.on('error', () => { startLooking(); });
         }
 
-        // ================= 3. 用户按钮交互 =================
+        // ================= 4. UI 切换控制 =================
+        function switchToWaitingUI() {
+            remoteVideo.style.display = 'none';
+            remoteVideo.srcObject = null;
+            localVideo.className = 'fullscreen-video'; // 我恢复全屏
+            // 清除拖拽留下的内联样式
+            localVideo.style.left = ''; localVideo.style.top = ''; localVideo.style.right = '';
+            actionBtn.className = '';
+        }
 
-        // 第一次点击：获取摄像头并开始匹配
-        startBtn.onclick = async () => {
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                localVideo.srcObject = localStream;
-                startLooking();
-            } catch (err) {
-                alert("无法访问摄像头: " + err.message);
-            }
+        function switchToConnectedUI() {
+            statusDiv.innerText = "🟢 已连接，可以打个招呼！";
+            remoteVideo.style.display = 'block'; // 显示对方全屏
+            localVideo.className = 'pip-video'; // 我变成画中画
+
+            actionBtn.disabled = false;
+            actionBtn.innerText = "⏭️ 换一个人";
+            actionBtn.className = 'btn-next';
+        }
+
+        // 按钮统一事件处理
+        actionBtn.onclick = () => {
+            if (!networkReady) return;
+            startLooking(); // 无论是开始还是换人，逻辑都是重新 startLooking
         };
 
-        // 点击 Next：挂断并重新匹配
-        nextBtn.onclick = () => {
-            statusDiv.innerText = "你跳过了对方...";
-            startLooking();
+        // ================= 5. 小窗拖拽逻辑 (支持触摸和鼠标) =================
+        let isDragging = false;
+        let offsetX, offsetY;
+
+        const dragStart = (e) => {
+            if (localVideo.className !== 'pip-video') return; // 只有小窗模式才能拖
+            isDragging = true;
+            const touch = e.touches ? e.touches[0] : e;
+            const rect = localVideo.getBoundingClientRect();
+            offsetX = touch.clientX - rect.left;
+            offsetY = touch.clientY - rect.top;
+        };
+
+        const dragMove = (e) => {
+            if (!isDragging) return;
+            e.preventDefault(); // 防止拖拽时屏幕滚动
+            const touch = e.touches ? e.touches[0] : e;
+            // 解除 right 限制，使用 left 和 top 进行绝对定位
+            localVideo.style.right = 'auto';
+
+            // 限制拖拽边界，防止拖出屏幕边缘
+            let newX = touch.clientX - offsetX;
+            let newY = touch.clientY - offsetY;
+            const maxX = window.innerWidth - localVideo.offsetWidth;
+            const maxY = window.innerHeight - localVideo.offsetHeight;
+
+            newX = Math.max(0, Math.min(newX, maxX));
+            newY = Math.max(0, Math.min(newY, maxY));
+
+            localVideo.style.left = `${newX}px`;
+            localVideo.style.top = `${newY}px`;
+        };
+
+        const dragEnd = () => { isDragging = false; };
+
+        // 绑定拖拽事件
+        localVideo.addEventListener('mousedown', dragStart);
+        localVideo.addEventListener('touchstart', dragStart, { passive: false });
+        window.addEventListener('mousemove', dragMove);
+        window.addEventListener('touchmove', dragMove, { passive: false });
+        window.addEventListener('mouseup', dragEnd);
+        window.addEventListener('touchend', dragEnd);
+
+        // ================= 启动应用 =================
+        // 页面加载完成后立刻请求摄像头
+        window.onload = () => {
+            initCamera();
         };
 
     </script>
