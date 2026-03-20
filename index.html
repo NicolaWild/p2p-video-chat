@@ -3,34 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>赛博轮盘 - 终极穿透版</title>
+    <title>赛博轮盘 - 稳定直连版</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <style>
-        /* 消除所有默认边距，防止页面滚动 */
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000; overflow: hidden; font-family: sans-serif; }
 
-        /* 全屏视频样式 */
         .fullscreen-video { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); z-index: 1; transition: all 0.3s ease-in-out; }
 
-        /* 悬浮小窗样式 (画中画) */
-        .pip-video { position: absolute; width: 120px; height: 180px; top: 20px; right: 20px; border-radius: 12px; border: 2px solid #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.5); object-fit: cover; transform: scaleX(-1); z-index: 10; cursor: grab; transition: none; }
+        /* 画中画样式 */
+        .pip-video { position: absolute; width: 110px; height: 160px; top: env(safe-area-inset-top, 20px); right: 20px; border-radius: 12px; border: 2px solid #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.5); object-fit: cover; transform: scaleX(-1); z-index: 10; cursor: grab; transition: none; }
         .pip-video:active { cursor: grabbing; }
 
-        /* UI 悬浮层 */
-        .ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; align-items: center; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0; box-sizing: border-box; }
+        .ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; align-items: center; padding: env(safe-area-inset-top, 40px) 0 env(safe-area-inset-bottom, 40px) 0; box-sizing: border-box; }
 
-        /* 状态提示增加毛玻璃感 */
-        #status { background: rgba(0, 0, 0, 0.6); color: #fff; padding: 10px 24px; border-radius: 20px; font-size: 14px; backdrop-filter: blur(10px); margin-top: 20px; text-align: center; max-width: 80%; }
+        #status { background: rgba(0, 0, 0, 0.6); color: #fff; padding: 10px 20px; border-radius: 20px; font-size: 14px; backdrop-filter: blur(10px); margin-top: 20px; text-align: center; }
 
-        /* 底部操作区 */
-        .bottom-controls { pointer-events: auto; width: 100%; display: flex; justify-content: center; padding-bottom: 40px; }
+        /* 底部控制面板 */
+        .bottom-panel { pointer-events: auto; background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(15px); padding: 25px 20px; border-radius: 24px 24px 0 0; width: 100%; max-width: 400px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 15px; box-shadow: 0 -5px 20px rgba(0,0,0,0.5); transition: transform 0.3s ease; }
 
-        button { background-color: #00ff88; color: #000; border: none; padding: 18px 45px; font-size: 18px; font-weight: bold; border-radius: 40px; cursor: pointer; box-shadow: 0 8px 25px rgba(0, 255, 136, 0.3); transition: transform 0.1s; }
+        .panel-hidden { transform: translateY(120%); } /* 连通后隐藏面板 */
+
+        .my-id-box { color: #aaa; font-size: 14px; text-align: center; }
+        .my-id-number { color: #00ff88; font-size: 28px; font-weight: bold; letter-spacing: 2px; display: block; margin-top: 5px; }
+
+        .input-group { display: flex; width: 100%; gap: 10px; }
+        input { flex: 1; padding: 15px; border-radius: 12px; border: none; font-size: 18px; text-align: center; background: #333; color: white; outline: none; }
+        input::placeholder { color: #888; }
+
+        button { background-color: #00ff88; color: #000; border: none; padding: 15px 25px; font-size: 16px; font-weight: bold; border-radius: 12px; cursor: pointer; transition: transform 0.1s; white-space: nowrap; }
         button:active { transform: scale(0.95); }
-        button:disabled { background-color: #444; color: #888; box-shadow: none; cursor: not-allowed; }
+        button:disabled { background-color: #444; color: #888; cursor: not-allowed; }
 
-        .btn-next { background-color: #ff4444; color: #fff; box-shadow: 0 8px 25px rgba(255, 68, 68, 0.3); }
+        .btn-hangup { background-color: #ff4444; color: white; border-radius: 30px; padding: 15px 40px; display: none; margin-bottom: 20px; pointer-events: auto; }
     </style>
 </head>
 <body>
@@ -39,9 +43,19 @@
     <video id="localVideo" class="fullscreen-video" autoplay muted playsinline></video>
 
     <div class="ui-layer">
-        <div id="status">正在初始化摄像头...</div>
-        <div class="bottom-controls">
-            <button id="actionBtn" disabled>开始匹配</button>
+        <div id="status">正在启动引擎...</div>
+
+        <button id="hangupBtn" class="btn-hangup">挂断通话</button>
+
+        <div id="bottomPanel" class="bottom-panel">
+            <div class="my-id-box">
+                你的专属暗号
+                <span id="myIdDisplay" class="my-id-number">----</span>
+            </div>
+            <div class="input-group">
+                <input type="number" id="targetIdInput" placeholder="输入朋友的暗号">
+                <button id="callBtn" disabled>拨号</button>
+            </div>
         </div>
     </div>
 
@@ -49,148 +63,141 @@
         const localVideo = document.getElementById('localVideo');
         const remoteVideo = document.getElementById('remoteVideo');
         const statusDiv = document.getElementById('status');
-        const actionBtn = document.getElementById('actionBtn');
+        const bottomPanel = document.getElementById('bottomPanel');
+        const myIdDisplay = document.getElementById('myIdDisplay');
+        const targetIdInput = document.getElementById('targetIdInput');
+        const callBtn = document.getElementById('callBtn');
+        const hangupBtn = document.getElementById('hangupBtn');
 
-        let localStream, peer, mqttClient, myPeerId, currentCall = null;
-        let isLooking = false, radarInterval = null, networkReady = false;
+        let localStream, peer, currentCall = null;
 
-        const ROOM_TOPIC = 'cyber-roulette-lobby-v3'; // 升级频道版本避免干扰
+        // 生成 4 位随机数字作为简单 ID
+        const myShortId = Math.floor(1000 + Math.random() * 9000).toString();
 
-        // ================= 1. 自动开启摄像头 =================
-        async function initCamera() {
+        // ================= 1. 初始化引擎 =================
+        async function init() {
             try {
+                // 1. 获取摄像头
                 localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 localVideo.srcObject = localStream;
-                statusDiv.innerText = "正在配置全球中转通道...";
-                initNetwork();
+                statusDiv.innerText = "正在连接全球信令服务器...";
+
+                // 2. 初始化 PeerJS，喂给它最全的打洞和中转节点
+                peer = new Peer(myShortId, {
+                    config: {
+                        'iceServers': [
+                            // 谷歌和 Twilio 的免费基础打洞服务器
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:global.stun.twilio.com:3478' },
+                            // Metered 的免费 TURN 中转服务器（跨运营商/5G 保底方案）
+                            {
+                                urls: [
+                                    'turn:openrelay.metered.ca:80',
+                                    'turn:openrelay.metered.ca:443',
+                                    'turn:openrelay.metered.ca:443?transport=tcp'
+                                ],
+                                username: 'openrelayproject',
+                                credential: 'openrelayproject'
+                            }
+                        ]
+                    }
+                });
+
+                peer.on('open', (id) => {
+                    myIdDisplay.innerText = id;
+                    statusDiv.innerText = "✅ 就绪！把暗号发给朋友吧";
+                    callBtn.disabled = false;
+                });
+
+                // 被动接听
+                peer.on('call', (call) => {
+                    statusDiv.innerText = "收到视频请求，正在接通...";
+                    call.answer(localStream);
+                    handleCall(call);
+                });
+
+                // 处理错误
+                peer.on('error', (err) => {
+                    statusDiv.innerText = "❌ 发生错误: " + err.type;
+                    console.error(err);
+                    resetUI();
+                });
+
             } catch (err) {
-                statusDiv.innerText = "❌ 摄像头权限被拒绝，请允许后刷新";
-                statusDiv.style.background = "rgba(255, 0, 0, 0.7)";
+                statusDiv.innerText = "❌ 摄像头获取失败，请刷新并授权";
             }
         }
 
-        // ================= 2. 网络初始化 (核心修复：增加 TURN 支持) =================
-        function initNetwork() {
-            myPeerId = Math.random().toString(36).substring(2, 10);
+        // ================= 2. 通话核心逻辑 =================
+        callBtn.onclick = () => {
+            const targetId = targetIdInput.value.trim();
+            if (!targetId || targetId.length !== 4) return alert("请输入 4 位有效暗号！");
+            if (targetId === myShortId) return alert("不能拨打给自己！");
 
-            // 配置 PeerJS，加入打洞和中转服务器
-            peer = new Peer(myPeerId, {
-                config: {
-                    'iceServers': [
-                        // 1. 基础 STUN 直连服务器 (Google 提供)
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' },
+            statusDiv.innerText = "正在呼叫 " + targetId + " ...";
+            callBtn.disabled = true;
 
-                        // 2. 关键：TURN 中转服务器 (Open Relay Project)
-                        // 当 5G/WiFi 跨地域直连失败时，流量会通过此处中转，确保 100% 成功
-                        {
-                            urls: [
-                                'turn:openrelay.metered.ca:80',
-                                'turn:openrelay.metered.ca:443',
-                                'turn:openrelay.metered.ca:443?transport=tcp'
-                            ],
-                            username: 'openrelayproject',
-                            credential: 'openrelayproject'
-                        }
-                    ]
-                }
-            });
-
-            peer.on('open', (id) => {
-                // 使用之前测试最稳的 EMQX 节点
-                mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
-                mqttClient.on('connect', () => {
-                    mqttClient.subscribe(ROOM_TOPIC);
-                    networkReady = true;
-                    statusDiv.innerText = "✅ 全球通道就绪！准备匹配了吗？";
-                    actionBtn.disabled = false;
-                });
-
-                mqttClient.on('message', (topic, message) => {
-                    if (!isLooking) return;
-                    const msg = JSON.parse(message.toString());
-                    if (msg.id !== myPeerId && msg.type === 'looking' && myPeerId > msg.id) {
-                        connectToStranger(msg.id);
-                    }
-                });
-            });
-
-            peer.on('call', (call) => {
-                if (!isLooking) {
-                    setTimeout(() => call.close(), 500);
-                    return;
-                }
-                stopLooking();
-                statusDiv.innerText = "正在连接对方...";
-                call.answer(localStream);
-                handleCall(call);
-            });
-        }
-
-        // ================= 3. 通话与匹配逻辑 =================
-        function startLooking() {
-            if (currentCall) { currentCall.close(); }
-            switchToWaitingUI();
-            isLooking = true;
-            statusDiv.innerText = "📡 正在寻找有缘人...";
-            actionBtn.innerText = "匹配中...";
-            actionBtn.disabled = true;
-
-            radarInterval = setInterval(() => {
-                if (isLooking) mqttClient.publish(ROOM_TOPIC, JSON.stringify({ type: 'looking', id: myPeerId }));
-            }, 2000);
-        }
-
-        function stopLooking() {
-            isLooking = false;
-            if (radarInterval) clearInterval(radarInterval);
-        }
-
-        function connectToStranger(targetPeerId) {
-            stopLooking();
-            statusDiv.innerText = "发现目标，正在握手...";
-            const call = peer.call(targetPeerId, localStream);
+            const call = peer.call(targetId, localStream);
             handleCall(call);
-        }
+        };
 
         function handleCall(call) {
             currentCall = call;
+
+            // 监听底层穿透状态（帮你排错）
+            call.peerConnection.oniceconnectionstatechange = () => {
+                const state = call.peerConnection.iceConnectionState;
+                console.log("ICE 状态:", state);
+                if (state === 'failed') {
+                    statusDiv.innerText = "❌ 防火墙阻断，连接失败";
+                    setTimeout(resetUI, 3000);
+                }
+            };
+
             call.on('stream', (remoteStream) => {
                 if (remoteVideo.srcObject !== remoteStream) {
                     remoteVideo.srcObject = remoteStream;
                 }
                 remoteVideo.play().then(switchToConnectedUI).catch((err) => {
-                    statusDiv.innerText = "⚠️ 画面已通，轻触屏幕开始";
+                    statusDiv.innerText = "⚠️ 请点击屏幕任意位置显示画面";
                     document.body.onclick = () => { remoteVideo.play(); switchToConnectedUI(); document.body.onclick = null; };
                 });
             });
-            call.on('close', startLooking);
-            call.on('error', startLooking);
+
+            call.on('close', () => {
+                statusDiv.innerText = "通话已结束";
+                resetUI();
+            });
         }
 
-        // ================= 4. UI 切换 =================
-        function switchToWaitingUI() {
+        hangupBtn.onclick = () => {
+            if (currentCall) currentCall.close();
+            resetUI();
+        };
+
+        // ================= 3. 界面切换与拖拽 =================
+        function switchToConnectedUI() {
+            statusDiv.innerText = "🟢 视频已接通";
+            remoteVideo.style.display = 'block';
+            localVideo.className = 'pip-video';
+            bottomPanel.classList.add('panel-hidden'); // 隐藏拨号盘
+            hangupBtn.style.display = 'block';         // 显示挂断按钮
+        }
+
+        function resetUI() {
+            if (currentCall) { currentCall.close(); currentCall = null; }
             remoteVideo.style.display = 'none';
             remoteVideo.srcObject = null;
             localVideo.className = 'fullscreen-video';
-            localVideo.style.left = ''; localVideo.style.top = '';
-            actionBtn.className = '';
+            localVideo.style.left = ''; localVideo.style.top = ''; localVideo.style.right = '';
+
+            bottomPanel.classList.remove('panel-hidden');
+            hangupBtn.style.display = 'none';
+            callBtn.disabled = false;
+            statusDiv.innerText = "✅ 就绪！把暗号发给朋友吧";
         }
 
-        function switchToConnectedUI() {
-            statusDiv.innerText = "🟢 连接成功！打个招呼吧";
-            remoteVideo.style.display = 'block';
-            localVideo.className = 'pip-video';
-            actionBtn.disabled = false;
-            actionBtn.innerText = "⏭️ 换一个人";
-            actionBtn.className = 'btn-next';
-        }
-
-        actionBtn.onclick = () => {
-            if (networkReady) startLooking();
-        };
-
-        // ================= 5. 小窗拖拽逻辑 =================
+        // 丝滑拖拽逻辑
         let isDragging = false, ox, oy;
         const dragStart = (e) => {
             if (localVideo.className !== 'pip-video') return;
@@ -215,7 +222,7 @@
         window.addEventListener('mousemove', dragMove);
         window.addEventListener('mouseup', () => isDragging = false);
 
-        window.onload = initCamera;
+        window.onload = init;
     </script>
 </body>
 </html>
