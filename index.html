@@ -3,107 +3,85 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>德州结算助手 - 增强版</title>
+    <title>德州结算助手</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { background-color: #f3f4f6; font-family: -apple-system, sans-serif; }
-        .card { background: white; border-radius: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        body { background-color: #f8fafc; font-family: -apple-system, sans-serif; color: #334155; }
+        .card { background: white; border-radius: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-        .win-border { border-left: 6px solid #10b981; }
-        .loss-border { border-left: 6px solid #ef4444; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .animate-result { animation: fadeIn 0.4s ease-out forwards; }
+        .player-row { border-left: 4px solid #e2e8f0; }
+        .player-row.winner { border-left-color: #10b981; }
+        .player-row.loser { border-left-color: #ef4444; }
     </style>
 </head>
-<body class="p-4 pb-20">
+<body class="p-3 pb-10">
     <div id="app" class="max-w-md mx-auto">
-        <h1 class="text-2xl font-black text-center my-6 text-slate-800 flex items-center justify-center gap-2">
-            <span>🏟️</span> 德州扑克结算
-        </h1>
-
-        <div class="card p-5 mb-6 bg-slate-900 text-white shadow-xl">
-            <div class="grid grid-cols-2 gap-4">
-                <div class="text-center">
-                    <label class="block text-[10px] text-slate-400 uppercase tracking-wider mb-1">一手筹码 (粒)</label>
-                    <input v-model.number="config.chips" type="number" class="w-full bg-slate-800 rounded-lg py-2 text-xl font-bold border-none text-center focus:ring-2 focus:ring-blue-500 outline-none">
-                </div>
-                <div class="text-center">
-                    <label class="block text-[10px] text-slate-400 uppercase tracking-wider mb-1">一手金额 (元)</label>
-                    <input v-model.number="config.price" type="number" class="w-full bg-slate-800 rounded-lg py-2 text-xl font-bold border-none text-center focus:ring-2 focus:ring-blue-500 outline-none">
-                </div>
+        <div class="card p-3 mb-4 bg-slate-800 text-white flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-400">一手:</span>
+                <input v-model.number="config.chips" type="number" class="w-16 bg-slate-700 rounded py-1 text-center text-sm font-bold border-none outline-none">
+                <span class="text-xs text-slate-400">粒</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-400">单价:</span>
+                <input v-model.number="config.price" type="number" class="w-16 bg-slate-700 rounded py-1 text-center text-sm font-bold border-none outline-none">
+                <span class="text-xs text-slate-400">元</span>
             </div>
         </div>
 
-        <div class="space-y-4 mb-6">
+        <div class="space-y-2 mb-4">
             <div v-for="(p, index) in players" :key="index"
-                 class="card p-4 relative transition-all"
-                 :class="p.lastChips >= (p.buys * config.chips) ? 'win-border' : 'loss-border'">
+                 class="card p-3 relative player-row"
+                 :class="p.lastChips >= (p.buys * config.chips) ? 'winner' : 'loser'">
 
-                <button @click="removePlayer(index)" class="absolute -top-2 -right-2 w-6 h-6 bg-gray-200 text-gray-500 rounded-full text-xs shadow-sm">✕</button>
-
-                <div class="flex items-center justify-between mb-3">
-                    <input v-model="p.name" class="font-bold text-lg text-slate-700 w-28 border-b border-dashed border-gray-200 focus:border-blue-500 outline-none" placeholder="姓名">
-                    <div class="flex items-center bg-slate-100 rounded-lg p-1">
-                        <button @click="p.buys > 1 && p.buys--" class="w-8 h-8 flex items-center justify-center text-gray-400 text-xl font-bold">-</button>
-                        <span class="px-3 font-black text-slate-700 text-sm">买入 {{ p.buys }} 手</span>
-                        <button @click="p.buys++" class="w-8 h-8 flex items-center justify-center text-blue-600 text-xl font-bold">+</button>
+                <div class="flex items-center justify-between mb-2">
+                    <input v-model="p.name" class="font-bold text-sm text-slate-700 w-24 border-b border-transparent focus:border-blue-400 outline-none" placeholder="姓名">
+                    <div class="flex items-center bg-slate-100 rounded-md">
+                        <button @click="p.buys > 1 && p.buys--" class="px-2 text-gray-400 font-bold">-</button>
+                        <span class="px-1 text-xs font-bold text-slate-600">买 {{ p.buys }} 手</span>
+                        <button @click="p.buys++" class="px-2 text-blue-600 font-bold">+</button>
                     </div>
                 </div>
 
-                <div class="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <span class="text-xs font-bold text-gray-400 uppercase">剩余筹码</span>
+                <div class="flex items-center justify-between px-2 py-1 bg-gray-50 rounded">
+                    <span class="text-[11px] text-gray-400 uppercase">剩余筹码</span>
                     <div class="flex items-center">
-                        <input v-model.number="p.lastChips" type="number" class="w-24 bg-transparent text-right font-black text-2xl text-slate-800 outline-none" placeholder="0">
-                        <span class="ml-2 text-gray-400 text-sm">粒</span>
+                        <input v-model.number="p.lastChips" type="number" class="w-20 bg-transparent text-right font-bold text-lg text-slate-800 outline-none" placeholder="0">
+                        <span class="ml-1 text-[10px] text-gray-400">粒</span>
                     </div>
                 </div>
+                <button @click="removePlayer(index)" class="absolute top-1 right-1 text-gray-300 text-xs">✕</button>
             </div>
         </div>
 
-        <div class="space-y-4">
-            <button @click="addPlayer" class="w-full py-4 rounded-2xl border-2 border-dashed border-gray-300 text-gray-400 font-bold active:bg-gray-100">
-                + 添加参与者
+        <div class="grid grid-cols-3 gap-2 mb-6">
+            <button @click="addPlayer" class="col-span-1 py-2 rounded-lg border border-slate-300 text-slate-500 text-xs font-bold active:bg-gray-100">
+                + 加人
             </button>
-
-            <button @click="calculate" class="w-full py-5 rounded-2xl bg-indigo-600 text-white font-black text-xl shadow-lg shadow-indigo-200 active:scale-95 transition-all">
-                计算转账账单
+            <button @click="calculate" class="col-span-2 py-2 rounded-lg bg-blue-600 text-white font-bold text-sm shadow-md active:scale-95">
+                开始结算
             </button>
         </div>
 
-        <div v-if="results.length > 0" id="result-box" class="mt-8 mb-10 animate-result">
-            <div class="flex items-center justify-between mb-4 px-2">
-                <h3 class="font-black text-slate-800 text-lg">💰 结算清单</h3>
-                <button @click="copyResults" class="text-xs text-indigo-600 font-bold uppercase tracking-widest">复制文本</button>
+        <div v-if="results.length > 0" id="result-box" class="card p-4 border-t-4 border-blue-500 animate-in fade-in slide-in-from-bottom-2">
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="text-sm font-black text-slate-800">📋 结算清单</h3>
+                <button @click="copyResults" class="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded font-bold">一键复制</button>
             </div>
 
-            <div class="space-y-3">
-                <div v-for="res in results" class="card overflow-hidden border border-gray-100">
-                    <div class="flex items-stretch">
-                        <div class="flex-1 p-4 bg-red-50 flex flex-col items-center justify-center border-r border-gray-100">
-                            <span class="text-[10px] text-red-400 font-bold uppercase mb-1">转账人</span>
-                            <span class="font-black text-red-600 text-lg">{{ res.from }}</span>
-                        </div>
-
-                        <div class="flex-[1.2] p-4 flex flex-col items-center justify-center bg-white">
-                            <span class="text-[10px] text-gray-400 font-bold uppercase mb-1">转账金额</span>
-                            <div class="text-2xl font-black text-slate-900 leading-none">
-                                <small class="text-sm">¥</small>{{ res.amount }}
-                            </div>
-                            <div class="mt-2 text-indigo-400 text-xl">➜</div>
-                        </div>
-
-                        <div class="flex-1 p-4 bg-green-50 flex flex-col items-center justify-center border-l border-gray-100">
-                            <span class="text-[10px] text-green-400 font-bold uppercase mb-1">收款人</span>
-                            <span class="font-black text-green-600 text-lg">{{ res.to }}</span>
-                        </div>
-                    </div>
+            <div class="space-y-1.5">
+                <div v-for="res in results" class="text-sm flex items-center gap-2 py-1 border-b border-gray-50 last:border-none">
+                    <span class="font-bold text-red-500 text-xs">{{ res.from }}</span>
+                    <span class="text-gray-400 text-[11px]">转给</span>
+                    <span class="font-bold text-green-600 text-xs">{{ res.to }}</span>
+                    <span class="ml-auto font-mono font-black text-slate-700">{{ res.amount }} 元</span>
                 </div>
             </div>
 
-            <div class="mt-6 text-center">
-                <p class="text-[10px] text-gray-400">所有账单已根据最简路径匹配，建议微信转账核对</p>
-            </div>
+            <p class="text-[9px] text-gray-400 mt-4 text-center tracking-tighter">
+                温馨提示：账单已按最简转账次数自动优化。
+            </p>
         </div>
     </div>
 
@@ -123,7 +101,9 @@
             },
             methods: {
                 addPlayer() {
-                    this.players.push({ name: '新玩家', buys: 1, lastChips: 0 });
+                    const names = ['赵六', '孙七', '周八', '吴九', '郑十'];
+                    const nextName = names[this.players.length - 3] || `玩家${this.players.length + 1}`;
+                    this.players.push({ name: nextName, buys: 1, lastChips: 0 });
                 },
                 removePlayer(index) {
                     if(this.players.length > 1) this.players.splice(index, 1);
@@ -136,7 +116,7 @@
                     if (Math.abs(diff) > 0.1) {
                         const status = diff > 0 ? "多了" : "少了";
                         const money = (Math.abs(diff) * (this.config.price / this.config.chips)).toFixed(2);
-                        alert(`❌ 账目不平！\n\n总筹码${status}：${Math.abs(diff)} 粒\n差额约：${money} 元\n\n请核对后再结算！`);
+                        alert(`账目不平！\n全场筹码${status} ${Math.abs(diff)} 粒\n差额约 ${money} 元\n请检查输入内容。`);
                         return;
                     }
 
@@ -161,9 +141,14 @@
                     setTimeout(() => document.getElementById('result-box').scrollIntoView({ behavior: 'smooth' }), 200);
                 },
                 copyResults() {
-                    const text = this.results.map(r => `${r.from} ➜ 转给 ${r.to}：${r.amount}元`).join('\n');
-                    navigator.clipboard.writeText("📋 德州结算账单：\n" + text);
-                    alert("账单已复制，快去发群里吧！");
+                    const text = this.results.map(r => `${r.from} 转给 ${r.to} ${r.amount}元`).join('\n');
+                    const el = document.createElement('textarea');
+                    el.value = "📋 德州结算单：\n" + text;
+                    document.body.appendChild(el);
+                    el.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(el);
+                    alert("账单已复制，可直接粘贴到微信群。");
                 }
             }
         }).mount('#app')
