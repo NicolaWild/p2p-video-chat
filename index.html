@@ -3,72 +3,94 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>德州桌上助手</title>
+    <title>德州扑克结算助手</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { background-color: #f8fafc; font-family: -apple-system, system-ui, sans-serif; }
-        .card { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; }
+        body { background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        .card { background: white; border-radius: 16px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        /* 隐藏输入框的微调按钮 */
+        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
     </style>
 </head>
 <body class="p-4">
-    <div id="app" class="max-w-md mx-auto">
-        <h2 class="text-xl font-bold text-center mb-4 text-gray-800">🃏 德州结算助手</h2>
+    <div id="app" class="max-w-md mx-auto pb-10">
+        <h1 class="text-2xl font-black text-center my-6 text-slate-800">🃏 德州结算助手</h1>
 
-        <div class="card p-4 mb-4 grid grid-cols-2 gap-4 bg-slate-800 text-white">
-            <div>
-                <label class="block text-xs text-slate-400 mb-1">一手筹码</label>
-                <input v-model.number="config.chips" type="number" class="w-full bg-slate-700 rounded p-2 text-center border-none">
+        <div class="card p-5 mb-6 bg-slate-800 text-white">
+            <div class="flex justify-between items-center mb-4">
+                <span class="text-sm font-bold text-slate-400">全局设置</span>
+                <span class="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">1手筹码单位制</span>
             </div>
-            <div>
-                <label class="block text-xs text-slate-400 mb-1">单价 (元)</label>
-                <input v-model.number="config.price" type="number" class="w-full bg-slate-700 rounded p-2 text-center border-none">
+            <div class="grid grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-xs text-slate-400 mb-2">一手筹码 (粒)</label>
+                    <input v-model.number="config.chips" type="number" class="w-full bg-slate-700 rounded-lg p-3 text-center text-xl font-bold border-none outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-2">一手金额 (元)</label>
+                    <input v-model.number="config.price" type="number" class="w-full bg-slate-700 rounded-lg p-3 text-center text-xl font-bold border-none outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
             </div>
         </div>
 
-        <div class="space-y-3 mb-6">
-            <div v-for="(p, index) in players" :key="index" class="card p-4 relative">
-                <button @click="removePlayer(index)" class="absolute top-2 right-2 text-gray-300 text-sm">×</button>
+        <div class="space-y-4 mb-6">
+            <div v-for="(p, index) in players" :key="index" class="card p-5 relative border-l-4" :class="p.lastChips >= (p.buys * config.chips) ? 'border-green-500' : 'border-red-400'">
+                <button @click="removePlayer(index)" class="absolute top-2 right-3 text-gray-300 hover:text-red-500 text-xl">×</button>
 
-                <div class="flex items-center gap-3 mb-3">
-                    <input v-model="p.name" class="font-bold text-gray-700 w-24 border-b border-gray-100 outline-none focus:border-blue-400" placeholder="姓名">
-                    <div class="flex-1 flex items-center justify-end space-x-3">
-                        <button @click="p.buys > 1 && p.buys--" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xl">-</button>
-                        <span class="font-bold text-blue-600 w-12 text-center">+{{ p.buys }} 手</span>
-                        <button @click="p.buys++" class="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xl">+</button>
+                <div class="flex items-center justify-between mb-4">
+                    <input v-model="p.name" class="font-bold text-lg text-slate-700 w-32 border-b-2 border-transparent focus:border-blue-500 outline-none" placeholder="玩家姓名">
+                    <div class="flex items-center bg-slate-100 rounded-full px-2 py-1">
+                        <button @click="p.buys > 1 && p.buys--" class="w-8 h-8 flex items-center justify-center text-2xl text-slate-500">-</button>
+                        <span class="mx-3 font-black text-blue-600 text-lg">+{{ p.buys }}手</span>
+                        <button @click="p.buys++" class="w-8 h-8 flex items-center justify-center text-2xl text-blue-600">+</button>
                     </div>
                 </div>
 
-                <div class="flex items-center gap-2 bg-gray-50 rounded p-2 text-sm">
-                    <span class="text-gray-500">剩余筹码:</span>
-                    <input v-model.number="p.lastChips" type="number" class="flex-1 bg-transparent text-right font-medium outline-none" placeholder="输入最终点数">
+                <div class="flex items-center justify-between bg-slate-50 rounded-xl p-3">
+                    <span class="text-sm font-medium text-slate-500">最后剩余筹码:</span>
+                    <div class="flex items-center">
+                        <input v-model.number="p.lastChips" type="number" class="w-24 bg-transparent text-right font-black text-xl text-slate-800 outline-none" placeholder="0">
+                        <span class="ml-1 text-xs text-slate-400">粒</span>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <button @click="addPlayer" class="w-full py-3 rounded-xl border-2 border-dashed border-slate-300 text-slate-500 mb-4 hover:bg-slate-50 transition-colors">
-            + 添加玩家
-        </button>
+        <div class="flex flex-col gap-4">
+            <button @click="addPlayer" class="w-full py-4 rounded-2xl border-2 border-dashed border-slate-300 text-slate-500 font-bold hover:bg-white transition-all">
+                + 添加新玩家
+            </button>
 
-        <button @click="calculate" class="w-full py-4 rounded-xl bg-blue-600 text-white font-bold text-lg shadow-lg active:scale-95 transition-transform">
-            立即计算结算结果
-        </button>
+            <button @click="calculate" class="w-full py-5 rounded-2xl bg-blue-600 text-white font-black text-xl shadow-xl shadow-blue-200 active:scale-95 transition-transform">
+                生成转账账单
+            </button>
+        </div>
 
-        <div v-if="results.length > 0" class="mt-6 p-5 card border-2 border-green-500 bg-green-50 animate-in fade-in duration-300">
-            <div class="flex justify-between items-center mb-4 border-b border-green-200 pb-2">
-                <h3 class="font-bold text-green-800">💰 结算账单</h3>
-                <span class="text-xs bg-green-200 text-green-800 px-2 py-1 rounded">总盈亏平账</span>
+        <div v-if="results.length > 0" id="result-section" class="mt-8 p-6 card border-2 border-blue-500 bg-blue-50 animate-in slide-in-from-bottom duration-500">
+            <h3 class="text-center font-black text-blue-900 text-lg mb-4 flex items-center justify-center gap-2">
+                <span>💸 最终转账方案</span>
+            </h3>
+            <div class="space-y-4">
+                <div v-for="res in results" class="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm">
+                    <div class="flex flex-col">
+                        <span class="text-xs text-slate-400">谁转账</span>
+                        <span class="font-bold text-red-500">{{ res.from }}</span>
+                    </div>
+                    <div class="flex flex-col items-center">
+                        <span class="text-blue-500 text-xl">➡️</span>
+                        <span class="text-[10px] font-bold text-blue-400">{{ res.amount }} 元</span>
+                    </div>
+                    <div class="flex flex-col text-right">
+                        <span class="text-xs text-slate-400">谁收款</span>
+                        <span class="font-bold text-green-600">{{ res.to }}</span>
+                    </div>
+                </div>
             </div>
-            <ul class="space-y-3">
-                <li v-for="res in results" class="flex items-center justify-between text-gray-700">
-                    <span><b class="text-red-500">{{ res.from }}</b> 付给 <b class="text-green-600">{{ res.to }}</b></span>
-                    <span class="font-mono font-bold">{{ res.amount }} 元</span>
-                </li>
-            </ul>
-            <div class="mt-4 text-[10px] text-gray-400 text-center">
-                提示：如有小数点是因为筹码未打满一手的零钱。
-            </div>
+            <p class="text-[10px] text-slate-400 mt-6 text-center leading-relaxed">
+                计算逻辑：(剩余筹码 - 买入总筹码) × (单价/每手筹码)<br>
+                所有账目均已按最优路径（最少转账次数）匹配。
+            </p>
         </div>
     </div>
 
@@ -79,55 +101,69 @@
                 return {
                     config: { chips: 200, price: 50 },
                     players: [
-                        { name: '张三', buys: 1, lastChips: 0 },
-                        { name: '李四', buys: 1, lastChips: 0 }
+                        { name: '玩家A', buys: 1, lastChips: 0 },
+                        { name: '玩家B', buys: 1, lastChips: 0 },
+                        { name: '玩家C', buys: 1, lastChips: 0 }
                     ],
                     results: []
                 }
             },
             methods: {
                 addPlayer() {
-                    this.players.push({ name: '新玩家', buys: 1, lastChips: 0 });
+                    this.players.push({ name: `玩家${String.fromCharCode(65 + this.players.length)}`, buys: 1, lastChips: 0 });
                 },
                 removePlayer(index) {
                     if(this.players.length > 1) this.players.splice(index, 1);
                 },
                 calculate() {
-                    const ratio = this.config.price / this.config.chips;
+                    // 1. 核心校验逻辑
+                    const totalBought = this.players.reduce((sum, p) => sum + (p.buys * this.config.chips), 0);
+                    const totalLast = this.players.reduce((sum, p) => sum + (p.lastChips || 0), 0);
+                    const diff = totalLast - totalBought;
 
-                    // 计算每个人的净利润
-                    let balances = this.players.map(p => {
-                        let cost = p.buys * this.config.chips;
-                        let netInChips = (p.lastChips || 0) - cost;
-                        return { name: p.name, amount: netInChips * ratio };
-                    });
-
-                    // 检查是否平账
-                    const totalCheck = balances.reduce((s, a) => s + a.amount, 0);
-                    if(Math.abs(totalCheck) > 1) {
-                        alert(`账目似乎不对劲！全场总和为 ${totalCheck.toFixed(2)}，请检查筹码是否填错。`);
+                    if (Math.abs(diff) > 0.1) {
+                        const status = diff > 0 ? "多出了" : "缺少了";
+                        const money = (Math.abs(diff) * (this.config.price / this.config.chips)).toFixed(2);
+                        alert(`⚠️ 筹码盘点不准！\n\n总买入：${totalBought}\n总剩余：${totalLast}\n\n当前全场${status} ${Math.abs(diff)} 筹码。\n相当于有 ${money} 元对不上，请重新核对！`);
+                        return;
                     }
 
-                    // 贪心算法匹配转账
-                    let winners = balances.filter(b => b.amount > 0).sort((a, b) => b.amount - a.amount);
-                    let losers = balances.filter(b => b.amount < 0).sort((a, b) => a.amount - b.amount);
+                    // 2. 净盈亏计算 (单位：元)
+                    const ratio = this.config.price / this.config.chips;
+                    let balances = this.players.map(p => ({
+                        name: p.name,
+                        net: ((p.lastChips || 0) - (p.buys * this.config.chips)) * ratio
+                    }));
+
+                    // 3. 贪心算法匹配转账路径
+                    let winners = balances.filter(b => b.net > 0.01).sort((a, b) => b.net - a.net);
+                    let losers = balances.filter(b => b.net < -0.01).sort((a, b) => a.net - b.net);
 
                     this.results = [];
-                    while(winners.length && losers.length) {
-                        let w = winners[0], l = losers[0];
-                        let trans = Math.min(w.amount, Math.abs(l.amount));
+                    // 深度拷贝以防影响原始数据
+                    let ws = JSON.parse(JSON.stringify(winners));
+                    let ls = JSON.parse(JSON.stringify(losers));
+
+                    while(ws.length && ls.length) {
+                        let w = ws[0], l = ls[0];
+                        let amount = Math.min(w.net, Math.abs(l.net));
 
                         this.results.push({
                             from: l.name,
                             to: w.name,
-                            amount: trans.toFixed(2)
+                            amount: amount.toFixed(2)
                         });
 
-                        w.amount -= trans;
-                        l.amount += trans;
-                        if(w.amount < 0.01) winners.shift();
-                        if(Math.abs(l.amount) < 0.01) losers.shift();
+                        w.net -= amount;
+                        l.net += amount;
+                        if(w.net < 0.01) ws.shift();
+                        if(Math.abs(l.net) < 0.01) ls.shift();
                     }
+
+                    // 滚动到结果区
+                    setTimeout(() => {
+                        document.getElementById('result-section')?.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
                 }
             }
         }).mount('#app')
